@@ -1,0 +1,116 @@
+# 2xWV3hGoS8YWZzvyPTTislme6qm_3bKgKAGvsbs25yJVQyNHG
+!curl ipv4.icanhazip.com
+#  필수 라이브러리 설치
+!pip install -q streamlit pyngrok pandas
+
+import os
+import time
+import subprocess
+from pyngrok import ngrok
+# ---------------------------------------------------------
+# ⭐ 중요: 아래 NGROK_TOKEN 변수에 본인의 ngrok 토큰을 꼭 넣어주세요!
+NGROK_TOKEN = "# 2xWV3hGoS8YWZzvyPTTislme6qm_3bKgKAGvsbs25yJVQyNHG"
+# ---------------------------------------------------------
+# Streamlit 앱 코드 작성
+app_code = """
+import streamlit as st
+import pandas as pd
+import os
+
+st.set_page_config(page_title="CBL 물품 관리", layout="centered")
+
+DB_FILE = "lab_orders.csv"
+
+# 데이터 로드 (시약명, 상태 딱 2개만 관리)
+def load_data():
+    if os.path.exists(DB_FILE):
+        try:
+            df = pd.read_csv(DB_FILE)
+            if '시약명' in df.columns and '상태' in df.columns:
+                return df[['시약명', '상태']]
+        except:
+            pass
+    return pd.DataFrame(columns=['시약명', '상태'])
+
+def save_data(df):
+    df.to_csv(DB_FILE, index=False)
+
+if 'orders' not in st.session_state:
+    st.session_state.orders = load_data()
+
+st.title("📦 CBL AI (랩실 물품 관리)")
+st.caption("안정화 버전: 물품을 등록하고 도착 여부를 체크하세요.")
+
+# --- [안정성 100%] 폼(Form)을 사용한 입력창 ---
+# 폼 안에서는 엔터를 치거나 버튼을 누르기 전까지 화면이 새로고침되지 않아 에러가 안 납니다.
+with st.form("add_item_form", clear_on_submit=True):
+    st.subheader("📝 신규 물품 등록")
+    new_item = st.text_input("물품 이름 입력 (예: NaCl, 50ml Tube)")
+    submitted = st.form_submit_button("등록하기")
+
+    if submitted and new_item.strip() != "":
+        new_row = pd.DataFrame([{'시약명': new_item.strip(), '상태': '미도착'}])
+        st.session_state.orders = pd.concat([st.session_state.orders, new_row], ignore_index=True)
+        save_data(st.session_state.orders)
+        st.success(f"'{new_item.strip()}' 등록 완료!")
+        st.rerun()
+
+st.markdown("---")
+
+# --- 물품 리스트 관리 ---
+st.subheader("📋 현재 물품 리스트")
+
+if st.session_state.orders.empty:
+    st.info("등록된 물품이 없습니다.")
+else:
+    # 인덱스 꼬임 방지를 위해 최신 상태로 유지
+    st.session_state.orders.reset_index(drop=True, inplace=True)
+
+    for idx, row in st.session_state.orders.iterrows():
+        # 컬럼 비율 (체크박스 : 물품명 : 삭제버튼)
+        col1, col2, col3 = st.columns([0.15, 0.65, 0.2])
+
+        # 1. 체크박스 (도착 상태)
+        is_done = (row['상태'] == '도착')
+        changed = col1.checkbox("도착", value=is_done, key=f"chk_{idx}")
+
+        # 상태가 변했으면 즉시 반영
+        if changed != is_done:
+            new_status = '도착' if changed else '미도착'
+            st.session_state.orders.at[idx, '상태'] = new_status
+            save_data(st.session_state.orders)
+            st.rerun()
+
+        # 2. 물품 이름 표시 (도착하면 회색 취소선)
+        if changed:
+            col2.markdown(f"<span style='color:gray'>~~{row['시약명']}~~</span>", unsafe_allow_html=True)
+        else:
+            col2.markdown(f"**{row['시약명']}**", unsafe_allow_html=True)
+
+        # 3. 개별 삭제 버튼
+        if col3.button("🗑️ 삭제", key=f"del_{idx}"):
+            st.session_state.orders = st.session_state.orders.drop(idx)
+            save_data(st.session_state.orders)
+            st.rerun()
+
+st.markdown("---")
+
+# 전체 초기화 버튼 (실수 방지를 위해 한 번 더 묻는 디자인으로 변경 가능하나 직관성을 위해 유지)
+if st.button("🚨 전체 리스트 지우기"):
+    st.session_state.orders = pd.DataFrame(columns=['시약명', '상태'])
+    save_data(st.session_state.orders)
+    st.rerun()
+"""
+
+with open("app.py", "w", encoding="utf-8") as f:
+    f.write(app_code)
+
+# 서버 백그라운드 실행
+print("서버를 준비하는 중입니다...")
+subprocess.Popen(["streamlit", "run", "app.py", "--server.port", "8501", "--server.address", "0.0.0.0"])
+time.sleep(3) # 서버가 열릴 때까지 잠시 대기
+
+# ngrok 주소 출력
+public_url = ngrok.connect(8501).public_url
+print(f"\\n✅ 모든 설정이 완료되었습니다!")
+print(f"👉 접속 주소: {public_url}")
