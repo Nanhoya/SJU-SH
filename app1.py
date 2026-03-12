@@ -1,61 +1,62 @@
+streamlit
+pandas
+st-gsheets-connection
+
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import pandas as pd
-import os
 
-st.set_page_config(page_title="CBL 물품 관리", layout="centered")
+st.set_page_config(page_title="CBL 배송 관리", layout="centered")
 
-# 서버가 꺼져도 데이터가 보존되도록 하려면 나중에 구글 시트로 연결하는 게 좋지만,
-# 우선은 간단하게 파일 저장 방식으로 구성합니다.
-DB_FILE = "lab_orders.csv"
+# 구글 시트와 연결하는 마법의 도구
+conn = st.connection("gsheets", type=GSheetsConnection)
 
+# 시트에서 데이터 가져오기 (ttl=0은 실시간 반영을 뜻함)
 def load_data():
-    if os.path.exists(DB_FILE):
-        try:
-            return pd.read_csv(DB_FILE)
-        except:
-            pass
-    return pd.DataFrame(columns=['시약명', '상태'])
+    try:
+        return conn.read(ttl=0)
+    except:
+        return pd.DataFrame(columns=['시약명', '상태'])
 
-def save_data(df):
-    df.to_csv(DB_FILE, index=False)
-
-if 'orders' not in st.session_state:
-    st.session_state.orders = load_data()
+df = load_data()
 
 st.title("🧪 CBL 배송 관리")
-st.caption("주문한 물품을 입력해주세요")
+st.caption("배송후, 꼭 기록하기.")
 
-with st.form("add_item_form", clear_on_submit=True):
-    new_item = st.text_input("물품 이름 입력")
-    submitted = st.form_submit_button("등록")
-    
-    if submitted and new_item.strip():
-        new_row = pd.DataFrame([{'시약명': new_item.strip(), '상태': '미도착'}])
-        st.session_state.orders = pd.concat([st.session_state.orders, new_row], ignore_index=True)
-        save_data(st.session_state.orders)
+# 1. 입력 폼 (st.form 사용으로 입력 오류 방지)
+with st.form("add_item", clear_on_submit=True):
+    new_item = st.text_input("새 물품 이름")
+    if st.form_submit_button("등록") and new_item.strip():
+        new_row = pd.DataFrame([{"시약명": new_item.strip(), "상태": "미도착"}])
+        updated_df = pd.concat([df, new_row], ignore_index=True)
+        conn.update(data=updated_df) # 구글 시트에 즉시 기록
+        st.success(f"'{new_item}' 등록 성공!")
         st.rerun()
 
-st.markdown("---")
+st.divider()
 
-if st.session_state.orders.empty:
-    st.info("등록된 물품이 없습니다.")
+# 2. 리스트 관리
+if df.empty:
+    st.info("현재 등록된 물품이 없습니다.")
 else:
-    for idx, row in st.session_state.orders.iterrows():
+    for idx, row in df.iterrows():
         col1, col2, col3 = st.columns([0.15, 0.65, 0.2])
-        is_done = (row['상태'] == '도착')
-        changed = col1.checkbox("도착", value=is_done, key=f"chk_{idx}")
         
-        if changed != is_done:
-            st.session_state.orders.at[idx, '상태'] = '도착' if changed else '미도착'
-            save_data(st.session_state.orders)
+        # 상태 체크
+        is_done = (row['상태'] == '도착')
+        checked = col1.checkbox("도착", value=is_done, key=f"c_{idx}")
+        
+        if checked != is_done:
+            df.at[idx, '상태'] = '도착' if checked else '미도착'
+            conn.update(data=df)
             st.rerun()
             
-        if changed:
-            col2.markdown(f"<span style='color:gray'>~~{row['시약명']}~~</span>", unsafe_allow_html=True)
-        else:
-            col2.markdown(f"**{row['시약명']}**")
+        # 이름 표시
+        display_text = f"~~{row['시약명']}~~" if is_done else f"**{row['시약명']}**"
+        col2.write(display_text)
             
-        if col3.button("🗑️", key=f"del_{idx}"):
-            st.session_state.orders = st.session_state.orders.drop(idx)
-            save_data(st.session_state.orders)
+        # 개별 삭제
+        if col3.button("🗑️", key=f"d_{idx}"):
+            df = df.drop(idx)
+            conn.update(data=df)
             st.rerun()
