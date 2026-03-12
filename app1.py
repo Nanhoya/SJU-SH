@@ -10,7 +10,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 # 시트에서 데이터 가져오기 (ttl=0은 실시간 반영을 뜻함)
 def load_data():
     try:
-        return conn.read(ttl=0)
+        return conn.read(worksheet="시트1", ttl=0)
     except:
         return pd.DataFrame(columns=['시약명', '상태'])
 
